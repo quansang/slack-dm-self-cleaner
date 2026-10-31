@@ -1,71 +1,111 @@
-import { describe, it, expect } from "vitest";
-import { reduce, initialState } from "../src/lib/panelState";
+import { describe, expect, it } from "vitest";
+import { initialState, reduce } from "../src/lib/panelState";
+import type { ScanSnapshot } from "../src/lib/types";
+import { PEER_TARGET, TEST_SESSION } from "./helpers";
+
+const SNAPSHOT: ScanSnapshot = {
+  sessionTeamId: TEST_SESSION.teamId,
+  sessionUserId: TEST_SESSION.userId,
+  target: PEER_TARGET,
+  filters: { mode: "all", keepPinned: true },
+  candidates: [{ channelId: "DTEST01", ts: "1.1", authorUserId: "UTEST01", subtype: null }],
+  exclusions: { foreignAuthor: 0, appOrBot: 0, unsupportedSubtype: 0, pinned: 0, outsideDateRange: 0 },
+  scannedAtMs: 1000,
+  expiresAtMs: 901_000,
+  snapshotBoundaryTs: "1.1",
+  pages: 1,
+  threads: 0,
+};
 
 describe("panel reducer", () => {
-  it("initializes with the channel and conversation name", () => {
-    const s = reduce(initialState, { type: "INIT", channelId: "C1", conversationName: "#general" });
-    expect(s.status).toBe("idle");
-    expect(s.channelId).toBe("C1");
-    expect(s.conversationName).toBe("#general");
-  });
-
-  it("moves to preview and records the scan total", () => {
-    const scanning = reduce(initialState, { type: "SCAN_START" });
-    expect(scanning.status).toBe("scanning");
-    const preview = reduce(scanning, { type: "SCAN_DONE", total: 7 });
-    expect(preview.status).toBe("preview");
-    expect(preview.scanTotal).toBe(7);
-    expect(preview.progress.total).toBe(7);
-  });
-
-  it("marks stopped with final progress", () => {
-    const running = reduce(initialState, { type: "RUN_START" });
-    const stopped = reduce(running, {
-      type: "RUN_STOPPED",
-      progress: { deleted: 3, skipped: 1, total: 7, ratePerMin: 40, elapsedMs: 6000 },
+  it("follows idle to scan to immutable preview to complete", () => {
+    const idle = reduce(initialState, { type: "VERIFIED", session: TEST_SESSION, target: PEER_TARGET });
+    const scanning = reduce(idle, { type: "SCAN_START" });
+    const preview = reduce(scanning, {
+      type: "SCAN_DONE",
+      snapshot: SNAPSHOT,
+      session: TEST_SESSION,
+      target: PEER_TARGET,
     });
-    expect(stopped.status).toBe("stopped");
-    expect(stopped.progress.deleted).toBe(3);
+    const confirmed = reduce(preview, { type: "SET_CONFIRMED", value: true });
+    const running = reduce(confirmed, { type: "RUN_START" });
+    const complete = reduce(running, {
+      type: "RUN_RESULT",
+      result: {
+        terminal: "complete",
+        progress: {
+          deleted: 1,
+          alreadyGone: 0,
+          excluded: 0,
+          remaining: 0,
+          total: 1,
+          ratePerMin: 10,
+          elapsedMs: 6000,
+        },
+      },
+    });
+
+    expect([idle.status, scanning.status, preview.status, running.status, complete.status]).toEqual([
+      "idle", "scanning", "preview", "running", "complete",
+    ]);
   });
 
-  it("captures errors", () => {
-    const s = reduce(initialState, { type: "ERROR", message: "boom" });
-    expect(s.status).toBe("error");
-    expect(s.error).toBe("boom");
+  it("rejects delete before preview confirmation and rejects a second scan while scanning", () => {
+    const idle = reduce(initialState, { type: "VERIFIED", session: TEST_SESSION, target: PEER_TARGET });
+    expect(reduce(idle, { type: "RUN_START" })).toBe(idle);
+    const scanning = reduce(idle, { type: "SCAN_START" });
+    expect(reduce(scanning, { type: "SCAN_START" })).toBe(scanning);
   });
 
-  it("updates the conversation name without changing status", () => {
-    const initd = reduce(initialState, { type: "INIT", channelId: "D1", conversationName: "D1" });
-    const named = reduce(initd, { type: "SET_CONVERSATION_NAME", conversationName: "DM with Alice" });
-    expect(named.conversationName).toBe("DM with Alice");
-    expect(named.status).toBe("idle");
+  it("invalidates preview when scope, dates, or pin policy changes", () => {
+    const idle = reduce(initialState, { type: "VERIFIED", session: TEST_SESSION, target: PEER_TARGET });
+    const scanning = reduce(idle, { type: "SCAN_START" });
+    const preview = reduce(scanning, {
+      type: "SCAN_DONE",
+      snapshot: SNAPSHOT,
+      session: TEST_SESSION,
+      target: PEER_TARGET,
+    });
+    const changed = reduce(preview, { type: "SET_KEEP_PINNED", value: false });
+    expect(changed.status).toBe("idle");
+    expect(changed.snapshot).toBeUndefined();
+    expect(changed.confirmed).toBe(false);
   });
 
-  it("tracks scan progress and resets it on a new scan", () => {
-    const scanning = reduce(initialState, { type: "SCAN_START" });
-    expect(scanning.scanProgress).toEqual({ scanned: 0, found: 0 });
-    const progressed = reduce(scanning, { type: "SCAN_PROGRESS", scanned: 200, found: 12 });
-    expect(progressed.scanProgress).toEqual({ scanned: 200, found: 12 });
-    expect(progressed.status).toBe("scanning");
-    const rescan = reduce(progressed, { type: "SCAN_START" });
-    expect(rescan.scanProgress).toEqual({ scanned: 0, found: 0 });
-  });
+  it("distinguishes stopped and failed-partial terminal states", () => {
+    const scanning = reduce(
+      reduce(initialState, { type: "VERIFIED", session: TEST_SESSION, target: PEER_TARGET }),
+      { type: "SCAN_START" },
+    );
+    expect(reduce(scanning, { type: "SCAN_STOPPED" }).status).toBe("stopped");
 
-  it("defaults keepPinned to true and toggles it", () => {
-    expect(initialState.keepPinned).toBe(true);
-    const off = reduce(initialState, { type: "SET_KEEP_PINNED", keepPinned: false });
-    expect(off.keepPinned).toBe(false);
-  });
-
-  it("selects a new target, resetting scan but keeping filters", () => {
-    let s = reduce(initialState, { type: "INIT", channelId: "C1", conversationName: "#a" });
-    s = reduce(s, { type: "SET_AFTER", afterSec: 123 });
-    s = reduce(s, { type: "SCAN_DONE", total: 9 });
-    const sel = reduce(s, { type: "SELECT_TARGET", channelId: "C2", conversationName: "#b" });
-    expect(sel.channelId).toBe("C2");
-    expect(sel.conversationName).toBe("#b");
-    expect(sel.status).toBe("idle");
-    expect(sel.scanTotal).toBe(0);
-    expect(sel.afterSec).toBe(123);
+    const preview = reduce(scanning, {
+      type: "SCAN_DONE",
+      snapshot: SNAPSHOT,
+      session: TEST_SESSION,
+      target: PEER_TARGET,
+    });
+    const running = reduce(
+      reduce(preview, { type: "SET_CONFIRMED", value: true }),
+      { type: "RUN_START" },
+    );
+    const failed = reduce(running, {
+      type: "RUN_RESULT",
+      result: {
+        terminal: "failed-partial",
+        message: "policy",
+        progress: {
+          deleted: 0,
+          alreadyGone: 0,
+          excluded: 0,
+          remaining: 1,
+          total: 1,
+          ratePerMin: 0,
+          elapsedMs: 1,
+        },
+      },
+    });
+    expect(failed.status).toBe("failed-partial");
+    expect(failed.message).toBe("policy");
   });
 });

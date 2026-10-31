@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+      - name: Install reviewed dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+      - name: Test
+        run: npm test
+      - name: Build deterministic release package
+        run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          npm run package
+      - name: Verify package and public surfaces
+        run: npm run verify:release && npm run scan:public
+      - name: Upload immutable build output
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: slack-dm-self-cleaner-${{ github.ref_name }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out verification scripts only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Download exact build output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: slack-dm-self-cleaner-${{ github.ref_name }}
+          path: release/
+      - name: Verify downloaded bytes without install or build
+        run: node scripts/verify-release.mjs
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: release/dist.zip
+      - name: Assert release identity and create draft
+        env:
+          GH_TOKEN: ${{ secrets.QUANSANG_RELEASE_TOKEN }}
+          GH_REPO: quansang/slack-dm-self-cleaner
+        run: |
+          test "${GITHUB_REPOSITORY}" = "quansang/slack-dm-self-cleaner"
+          test "$(gh api user --jq .login)" = "quansang"
+          test "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" = "quansang/slack-dm-self-cleaner"
+          gh release create "${GITHUB_REF_NAME}" \
+            release/dist.zip release/SHA256SUMS release/provenance.json \
+            --repo quansang/slack-dm-self-cleaner \
+            --verify-tag --draft --generate-notes
