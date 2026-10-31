@@ -59,9 +59,8 @@ The extension reads the matching Slack browser-session value from Slack's page-l
 
 ## Data-use declarations
 
-- Personally identifiable information collected by developer: none.
-- Authentication information collected by developer: none.
-- Website content collected by developer: none.
+- Authentication information handled by the extension: yes. The Slack session value is read in the page and sent only to Slack (`https://app.slack.com/api/*`); it is never sent to the developer or a third party. Declared in the Store Privacy tab.
+- Personally identifiable information, website content and personal communications collected by developer: none. Only conversation ID, message timestamp, author user ID and subtype are held in memory during a run.
 - Analytics or advertising: none.
 - Data sale or third-party transfer: none.
 - Remote code: none.
@@ -77,10 +76,10 @@ Use a disposable, non-production Slack workspace and synthetic accounts/messages
 - [x] Chrome Web Store developer registration and fee completed.
 - [x] 2-Step Verification enabled.
 - [ ] Developer identity verification pending; account is temporarily labeled non-trader. Re-check trader/non-trader status when verification completes.
-- [ ] Dedicated public support route and notification settings confirmed.
+- [x] Dedicated public support route (GitHub Issues) and notification settings confirmed.
 - [x] Stable public privacy URL live.
-- [ ] Product name and non-endorsement copy accepted.
-- [ ] Single-purpose, site-access, authentication-data, privacy, and remote-code disclosures entered exactly.
+- [x] Product name and non-endorsement copy accepted.
+- [x] Single-purpose, site-access, authentication-data, privacy, and remote-code disclosures entered exactly.
 - [x] Synthetic screenshots (`store-screenshots/`, 1280x800) captured from the reviewed artifact and visually/OCR inspected.
 - [ ] Exact CI-built `dist.zip` uploaded; local rebuilds are forbidden.
 - [ ] Automatic publication after approval selected and submission receipt recorded without personal Slack data.
