@@ -67,13 +67,12 @@ jobs:
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
           subject-path: release/dist.zip
-      - name: Assert release identity and create draft
+      - name: Assert repository identity and create draft
         env:
-          GH_TOKEN: ${{ secrets.QUANSANG_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: quansang/slack-dm-self-cleaner
         run: |
           test "${GITHUB_REPOSITORY}" = "quansang/slack-dm-self-cleaner"
-          test "$(gh api user --jq .login)" = "quansang"
           test "$(gh repo view --json nameWithOwner --jq .nameWithOwner)" = "quansang/slack-dm-self-cleaner"
           gh release create "${GITHUB_REF_NAME}" \
             release/dist.zip release/SHA256SUMS release/provenance.json \
