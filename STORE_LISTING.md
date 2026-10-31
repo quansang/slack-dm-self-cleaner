@@ -74,13 +74,13 @@ Use a disposable, non-production Slack workspace and synthetic accounts/messages
 
 ## Owner prerequisites before tagging or submission
 
-- [ ] Chrome Web Store developer registration and fee completed.
-- [ ] 2-Step Verification enabled.
-- [ ] Developer identity and trader/non-trader decisions completed truthfully.
+- [x] Chrome Web Store developer registration and fee completed.
+- [x] 2-Step Verification enabled.
+- [ ] Developer identity verification pending; account is temporarily labeled non-trader. Re-check trader/non-trader status when verification completes.
 - [ ] Dedicated public support route and notification settings confirmed.
-- [ ] Stable public privacy URL live.
+- [x] Stable public privacy URL live.
 - [ ] Product name and non-endorsement copy accepted.
 - [ ] Single-purpose, site-access, authentication-data, privacy, and remote-code disclosures entered exactly.
-- [ ] Synthetic screenshots captured from the reviewed artifact and manually/OCR inspected.
+- [x] Synthetic screenshots (`store-screenshots/`, 1280x800) captured from the reviewed artifact and visually/OCR inspected.
 - [ ] Exact CI-built `dist.zip` uploaded; local rebuilds are forbidden.
 - [ ] Automatic publication after approval selected and submission receipt recorded without personal Slack data.
