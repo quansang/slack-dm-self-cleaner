@@ -1,38 +1,76 @@
-import { describe, it, expect } from "vitest";
-import { readSlackContext, readActiveChannelId, TokenNotFoundError } from "../src/lib/slackToken";
+import { describe, expect, it } from "vitest";
+import {
+  parseSlackTarget,
+  readSlackContext,
+  SessionVerificationError,
+  UnsupportedGridError,
+} from "../src/lib/slackToken";
+import { URL_TARGET } from "./helpers";
 
-function fakeWin(configObj: unknown | null, origin = "https://app.slack.com") {
-  const raw = configObj === null ? null : JSON.stringify(configObj);
+function fakeWindow(config: unknown, pathname = "/client/TTEST01/DTEST01") {
+  const stored = config === null ? null : JSON.stringify(config);
   return {
-    localStorage: { getItem: (k: string) => (k === "localConfig_v2" ? raw : null) },
-    location: { origin },
+    localStorage: {
+      getItem: (key: string) => key === "localConfig_v2" ? stored : null,
+    },
+    location: { origin: "https://app.slack.com", pathname },
   };
 }
 
-describe("readSlackContext", () => {
-  it("extracts token, user, team, and apiBase", () => {
-    const win = fakeWin({ lastActiveTeamId: "T1", teams: { T1: { token: "xoxc-1", user_id: "U1" } } });
-    expect(readSlackContext(win)).toEqual({
-      token: "xoxc-1", userId: "U1", teamId: "T1", apiBase: "https://app.slack.com",
-    });
+describe("parseSlackTarget", () => {
+  it("binds the workspace and DM from the exact client URL", () => {
+    expect(parseSlackTarget("/client/TTEST01/DTEST01/thread/123")).toEqual(URL_TARGET);
   });
 
-  it("throws TokenNotFoundError when config is missing", () => {
-    expect(() => readSlackContext(fakeWin(null))).toThrow(TokenNotFoundError);
+  it.each([
+    "/client/TTEST01/CTEST01",
+    "/client/TTEST01/GTEST01",
+    "/client/TTEST01",
+    "/archives/DTEST01",
+    "/foo/client/TTEST01/DTEST01",
+  ])("rejects unsupported or incomplete paths: %s", (pathname) => {
+    expect(() => parseSlackTarget(pathname)).toThrow(SessionVerificationError);
   });
 
-  it("throws TokenNotFoundError when the team has no token", () => {
-    const win = fakeWin({ lastActiveTeamId: "T1", teams: { T1: {} } });
-    expect(() => readSlackContext(win)).toThrow(TokenNotFoundError);
+  it("rejects Enterprise Grid URLs without a fallback", () => {
+    expect(() => parseSlackTarget("/client/ETEST01/DTEST01")).toThrow(UnsupportedGridError);
   });
 });
 
-describe("readActiveChannelId", () => {
-  it("reads the channel id from the client path", () => {
-    expect(readActiveChannelId("/client/T08AB12/C08CD34/thread")).toBe("C08CD34");
+describe("readSlackContext", () => {
+  it("uses only the team entry bound to the URL", () => {
+    const win = fakeWindow({
+      lastActiveTeamId: "TOTHER1",
+      teams: {
+        TOTHER1: { token: "other-synthetic-session", user_id: "UOTHER1" },
+        TTEST01: { token: "synthetic-session-value", user_id: "UTEST01" },
+      },
+    });
+    expect(readSlackContext(URL_TARGET, win)).toEqual({
+      token: "synthetic-session-value",
+      userId: "UTEST01",
+      teamId: "TTEST01",
+      apiBase: "https://app.slack.com",
+    });
   });
 
-  it("returns null when no conversation is open", () => {
-    expect(readActiveChannelId("/client/T08AB12")).toBe(null);
+  it.each([
+    { teams: { TTEST01: { user_id: "UTEST01" } } },
+    { teams: { TTEST01: { token: "synthetic-session-value" } } },
+    { teams: { TOTHER1: { token: "other-synthetic-session", user_id: "UOTHER1" } } },
+  ])("rejects missing token, user, or matching team", (config) => {
+    expect(() => readSlackContext(URL_TARGET, fakeWindow(config))).toThrow(SessionVerificationError);
+  });
+
+  it("rejects a non-object local session payload", () => {
+    const win = fakeWindow({});
+    win.localStorage.getItem = () => "null";
+    expect(() => readSlackContext(URL_TARGET, win)).toThrow(SessionVerificationError);
+  });
+
+  it("rejects a non-Slack origin", () => {
+    const win = fakeWindow({ teams: { TTEST01: { token: "x", user_id: "u" } } });
+    win.location.origin = "https://example.invalid";
+    expect(() => readSlackContext(URL_TARGET, win)).toThrow(/only on https:\/\/app\.slack\.com/);
   });
 });

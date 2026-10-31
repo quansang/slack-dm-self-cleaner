@@ -1,24 +1,30 @@
 {
-  "name": "free-bulk-delete-for-slack",
+  "name": "slack-dm-self-cleaner",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "package": "npm run build && node scripts/package.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
+    "scan:public": "node scripts/scan-public.mjs"
   },
   "dependencies": {
-    "preact": "^10.22.0"
+    "preact": "10.29.2"
   },
   "devDependencies": {
-    "@crxjs/vite-plugin": "^2.0.0-beta.25",
-    "@preact/preset-vite": "^2.9.0",
-    "@types/chrome": "^0.0.270",
-    "sharp": "^0.34.5",
-    "typescript": "^5.5.4",
-    "vite": "^5.4.0",
-    "vitest": "^2.0.5"
+    "@crxjs/vite-plugin": "2.5.0",
+    "@preact/preset-vite": "2.10.6",
+    "@types/chrome": "0.0.270",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "4.1.12"
   }
 }

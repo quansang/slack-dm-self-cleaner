@@ -1,202 +1,419 @@
-import { describe, it, expect } from "vitest";
-import { scan } from "../src/lib/cleaner";
-import type { SlackApi, HistoryPage } from "../src/lib/slackApi";
-import type { SlackContext } from "../src/lib/types";
-import { RateLimiter } from "../src/lib/rateLimiter";
+import { describe, expect, it, vi } from "vitest";
+import { runDelete, scan, type CleanerDeps } from "../src/lib/cleaner";
+import { SlackApiError, type SlackApi } from "../src/lib/slackApi";
+import type { ScanCandidate, ScanSnapshot } from "../src/lib/types";
+import {
+  fakeApi,
+  immediateLimiter,
+  PEER_TARGET,
+  SELF_TARGET,
+  TEST_CONTEXT,
+  TEST_SESSION,
+  URL_TARGET,
+} from "./helpers";
 
-const ctx: SlackContext = { token: "t", userId: "U1", teamId: "T1", apiBase: "https://app.slack.com" };
-const noopSleep = async () => {};
-
-function fakeApi(over: Partial<SlackApi> = {}): SlackApi {
+function cleanerDeps(
+  api: SlackApi,
+  options: {
+    now?: () => number;
+    readCurrent?: CleanerDeps["readCurrent"];
+  } = {},
+): CleanerDeps {
   return {
-    conversationsHistory: async (): Promise<HistoryPage> => ({ messages: [] }),
-    conversationsReplies: async (): Promise<HistoryPage> => ({ messages: [] }),
-    chatDelete: async () => ({ ok: true, status: 200 }),
-    conversationsInfo: async () => ({}),
-    usersInfo: async () => ({}),
-    usersConversations: async () => ({ conversations: [] }),
-    pinsList: async () => [],
-    savedList: async () => [],
-    ...over,
+    api,
+    limiter: immediateLimiter(),
+    now: options.now ?? (() => 1000),
+    readCurrent: options.readCurrent ?? (() => ({ target: URL_TARGET, context: TEST_CONTEXT })),
   };
 }
-function deps(api: SlackApi) {
-  return { api, limiter: new RateLimiter({ now: () => 0 }), sleep: noopSleep, now: () => 0 };
+
+function candidate(ts: string): ScanCandidate {
+  return {
+    channelId: PEER_TARGET.channelId,
+    ts,
+    authorUserId: TEST_SESSION.userId,
+    subtype: null,
+  };
+}
+
+function snapshot(
+  candidates: readonly ScanCandidate[],
+  options: { keepPinned?: boolean; expiresAtMs?: number } = {},
+): ScanSnapshot {
+  return {
+    sessionTeamId: TEST_SESSION.teamId,
+    sessionUserId: TEST_SESSION.userId,
+    target: PEER_TARGET,
+    filters: { mode: "all", keepPinned: options.keepPinned ?? false },
+    candidates,
+    exclusions: {
+      foreignAuthor: 0,
+      appOrBot: 0,
+      unsupportedSubtype: 0,
+      pinned: 0,
+      outsideDateRange: 0,
+    },
+    scannedAtMs: 1000,
+    expiresAtMs: options.expiresAtMs ?? 901_000,
+    snapshotBoundaryTs: candidates[0]?.ts ?? null,
+    pages: 1,
+    threads: 0,
+  };
 }
 
 describe("scan", () => {
-  it("keeps only the acting user's messages", async () => {
+  it("admits only own reviewed message shapes and freezes non-content evidence", async () => {
     const api = fakeApi({
       conversationsHistory: async () => ({
         messages: [
-          { ts: "100.0", user: "U1" },
-          { ts: "101.0", user: "U2" },
-          { ts: "102.0", user: "U1" },
+          { ts: "106.1", user: "UTEST01" },
+          { ts: "105.1", user: "UTEST01", subtype: "file_share" },
+          { ts: "104.1", user: "UPEER01" },
+          { ts: "103.1", user: "UTEST01", bot_id: "BTEST01" },
+          { ts: "102.1", user: "UTEST01", app_id: "ATEST01" },
+          { ts: "101.1", user: "UTEST01", subtype: "channel_join" },
         ],
       }),
     });
-    const res = await scan("C1", ctx, { onlyMine: true }, deps(api));
-    expect(res.tsList.sort()).toEqual(["100.0", "102.0"]);
-    expect(res.total).toBe(2);
-  });
 
-  it("applies after/before date bounds", async () => {
-    const api = fakeApi({
-      conversationsHistory: async () => ({
-        messages: [
-          { ts: "100.0", user: "U1" },
-          { ts: "200.0", user: "U1" },
-          { ts: "300.0", user: "U1" },
-        ],
-      }),
-    });
-    const res = await scan("C1", ctx, { onlyMine: true, afterSec: 150, beforeSec: 250 }, deps(api));
-    expect(res.tsList).toEqual(["200.0"]);
-  });
-
-  it("follows pagination cursors", async () => {
-    const pages: HistoryPage[] = [
-      { messages: [{ ts: "1.0", user: "U1" }], nextCursor: "c2" },
-      { messages: [{ ts: "2.0", user: "U1" }] },
-    ];
-    let i = 0;
-    const api = fakeApi({ conversationsHistory: async () => pages[i++] });
-    const res = await scan("C1", ctx, { onlyMine: true }, deps(api));
-    expect(res.tsList.sort()).toEqual(["1.0", "2.0"]);
-  });
-
-  it("includes thread replies authored by the user", async () => {
-    const api = fakeApi({
-      conversationsHistory: async () => ({ messages: [{ ts: "10.0", user: "U2", reply_count: 2 }] }),
-      conversationsReplies: async () => ({
-        messages: [
-          { ts: "10.0", user: "U2" }, // root — skipped (not mine, already considered)
-          { ts: "10.1", user: "U1" }, // mine
-          { ts: "10.2", user: "U3" },
-        ],
-      }),
-    });
-    const res = await scan("C1", ctx, { onlyMine: true }, deps(api));
-    expect(res.tsList).toEqual(["10.1"]);
-  });
-
-  it("reports scan progress as it pages through history", async () => {
-    const pages: HistoryPage[] = [
-      { messages: [{ ts: "1.0", user: "U1" }, { ts: "2.0", user: "U2" }], nextCursor: "c2" },
-      { messages: [{ ts: "3.0", user: "U1" }] },
-    ];
-    let i = 0;
-    const api = fakeApi({ conversationsHistory: async () => pages[i++] });
-    const updates: { scanned: number; found: number }[] = [];
-    await scan("C1", ctx, { onlyMine: true }, deps(api), (p) => updates.push(p));
-    expect(updates).toEqual([
-      { scanned: 2, found: 1 },
-      { scanned: 3, found: 2 },
-    ]);
-  });
-
-  it("excludes pinned and saved-for-later messages (this channel only) when keepPinned is on", async () => {
-    const api = fakeApi({
-      conversationsHistory: async () => ({ messages: [
-        { ts: "100.0", user: "U1" }, { ts: "200.0", user: "U1" },
-        { ts: "300.0", user: "U1" }, { ts: "400.0", user: "U1" },
-      ] }),
-      pinsList: async () => ["100.0"],
-      savedList: async () => [
-        { channel: "C1", ts: "200.0" },     // saved in this channel -> excluded
-        { channel: "OTHER", ts: "300.0" },  // saved elsewhere -> NOT excluded here
-      ],
-    });
-    const res = await scan("C1", ctx, { onlyMine: true, keepPinned: true }, deps(api));
-    expect(res.tsList).toEqual(["300.0", "400.0"]);
-  });
-
-  it("does not fetch pins or saved items when keepPinned is off", async () => {
-    const pins = vi.fn(async () => ["100.0"]);
-    const saved = vi.fn(async () => [{ channel: "C1", ts: "100.0" }]);
-    const api = fakeApi({
-      conversationsHistory: async () => ({ messages: [{ ts: "100.0", user: "U1" }] }),
-      pinsList: pins,
-      savedList: saved,
-    });
-    const res = await scan("C1", ctx, { onlyMine: true, keepPinned: false }, deps(api));
-    expect(pins).not.toHaveBeenCalled();
-    expect(saved).not.toHaveBeenCalled();
-    expect(res.tsList).toEqual(["100.0"]);
-  });
-});
-
-import { runDelete } from "../src/lib/cleaner";
-import { vi } from "vitest";
-
-function incClock() {
-  let t = 0;
-  return () => (t += 1000);
-}
-
-describe("runDelete", () => {
-  it("deletes every message and finishes done", async () => {
-    const deleted: string[] = [];
-    const api = fakeApi({
-      chatDelete: async (_c, ts) => { deleted.push(ts); return { ok: true, status: 200 }; },
-    });
-    const d = { api, limiter: new RateLimiter({ now: () => 0 }), sleep: noopSleep, now: incClock() };
-    const events: CleanerEventLike[] = [];
-    const ac = new AbortController();
-    const final = await runDelete(
-      { channelId: "C1", tsList: ["1.0", "2.0"], total: 2 }, ctx, d, (e) => events.push(e), ac.signal,
+    const result = await scan(
+      TEST_SESSION,
+      PEER_TARGET,
+      { mode: "all", keepPinned: false },
+      cleanerDeps(api),
     );
-    expect(deleted).toEqual(["1.0", "2.0"]);
-    expect(final.deleted).toBe(2);
-    expect(events.at(-1)!.type).toBe("done");
+
+    expect(result.candidates).toEqual([
+      { channelId: "DTEST01", ts: "106.1", authorUserId: "UTEST01", subtype: null },
+      { channelId: "DTEST01", ts: "105.1", authorUserId: "UTEST01", subtype: "file_share" },
+    ]);
+    expect(result.exclusions).toEqual({
+      foreignAuthor: 1,
+      appOrBot: 2,
+      unsupportedSubtype: 1,
+      pinned: 0,
+      outsideDateRange: 0,
+    });
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.candidates)).toBe(true);
   });
 
-  it("retries after a rate-limit response", async () => {
-    let calls = 0;
+  it("uses the same own-author invariant for the verified self-DM", async () => {
     const api = fakeApi({
-      chatDelete: async () => {
-        calls++;
-        return calls === 1
-          ? { ok: false, status: 429, error: "ratelimited", retryAfterMs: 1000 }
-          : { ok: true, status: 200 };
+      conversationsInfo: async () => ({ id: "DTEST01", is_im: true, is_mpim: false, user: "UTEST01" }),
+      conversationsHistory: async () => ({ messages: [
+        { ts: "2.1", user: "UTEST01" },
+        { ts: "1.1", user: "UOTHER1" },
+      ] }),
+    });
+    const result = await scan(
+      TEST_SESSION,
+      SELF_TARGET,
+      { mode: "all", keepPinned: false },
+      cleanerDeps(api),
+    );
+    expect(result.candidates.map((item) => item.ts)).toEqual(["2.1"]);
+  });
+
+  it("finds an in-range reply under an older root without bounding history", async () => {
+    const history = vi.fn(async () => ({
+      messages: [{ ts: "100.1", user: "UPEER01", reply_count: 1 }],
+    }));
+    const api = fakeApi({
+      conversationsHistory: history,
+      conversationsReplies: async () => ({ messages: [
+        { ts: "100.1", user: "UPEER01", reply_count: 1 },
+        { ts: "250.25", user: "UTEST01", thread_ts: "100.1" },
+      ] }),
+    });
+
+    const result = await scan(
+      TEST_SESSION,
+      PEER_TARGET,
+      { mode: "custom", startSec: 200, endExclusiveSec: 300, keepPinned: false },
+      cleanerDeps(api),
+    );
+    expect(history).toHaveBeenCalledWith("DTEST01", undefined, undefined);
+    expect(result.candidates.map((item) => item.ts)).toEqual(["250.25"]);
+  });
+
+  it("fails closed when pin protection cannot be established", async () => {
+    const api = fakeApi({
+      pinsList: async () => {
+        throw new SlackApiError("pins failed", { code: "not_allowed_token_type" });
       },
     });
-    const limiter = new RateLimiter({ now: () => 0 });
-    const penalize = vi.spyOn(limiter, "penalize");
-    const d = { api, limiter, sleep: noopSleep, now: incClock() };
-    const ac = new AbortController();
-    const final = await runDelete(
-      { channelId: "C1", tsList: ["1.0"], total: 1 }, ctx, d, () => {}, ac.signal,
-    );
-    expect(penalize).toHaveBeenCalledWith(1000);
-    expect(final.deleted).toBe(1);
+    await expect(scan(
+      TEST_SESSION,
+      PEER_TARGET,
+      { mode: "all", keepPinned: true },
+      cleanerDeps(api),
+    )).rejects.toMatchObject({ code: "not_allowed_token_type" });
   });
 
-  it("skips messages that cannot be deleted", async () => {
-    const api = fakeApi({ chatDelete: async () => ({ ok: false, status: 200, error: "message_not_found" }) });
-    const d = { api, limiter: new RateLimiter({ now: () => 0 }), sleep: noopSleep, now: incClock() };
-    const ac = new AbortController();
-    const final = await runDelete(
-      { channelId: "C1", tsList: ["1.0"], total: 1 }, ctx, d, () => {}, ac.signal,
-    );
-    expect(final.skipped).toBe(1);
-    expect(final.deleted).toBe(0);
-  });
-
-  it("stops promptly when aborted", async () => {
-    const ac = new AbortController();
-    let calls = 0;
+  it("excludes protected timestamps and sorts candidates newest first", async () => {
     const api = fakeApi({
-      chatDelete: async (_c, ts) => { calls++; if (calls === 1) ac.abort(); return { ok: true, status: 200 }; },
+      pinsList: async () => new Set(["2.1"]),
+      conversationsHistory: async () => ({ messages: [
+        { ts: "1.1", user: "UTEST01" },
+        { ts: "3.1", user: "UTEST01" },
+        { ts: "2.1", user: "UTEST01" },
+      ] }),
     });
-    const d = { api, limiter: new RateLimiter({ now: () => 0 }), sleep: noopSleep, now: incClock() };
-    const events: CleanerEventLike[] = [];
-    const final = await runDelete(
-      { channelId: "C1", tsList: ["1.0", "2.0", "3.0"], total: 3 }, ctx, d, (e) => events.push(e), ac.signal,
+    const result = await scan(
+      TEST_SESSION,
+      PEER_TARGET,
+      { mode: "all", keepPinned: true },
+      cleanerDeps(api),
     );
-    expect(final.deleted).toBe(1);
-    expect(events.at(-1)!.type).toBe("stopped");
+    expect(result.candidates.map((item) => item.ts)).toEqual(["3.1", "1.1"]);
+    expect(result.exclusions.pinned).toBe(1);
   });
+
+  it("deduplicates messages returned by history and thread pagination", async () => {
+    const duplicateReply = { ts: "2.1", user: "UTEST01", subtype: "thread_broadcast", thread_ts: "1.1" };
+    const api = fakeApi({
+      conversationsHistory: async () => ({
+        messages: [
+          { ts: "1.1", user: "UPEER01", reply_count: 1 },
+          duplicateReply,
+        ],
+      }),
+      conversationsReplies: async () => ({
+        messages: [
+          { ts: "1.1", user: "UPEER01", reply_count: 1 },
+          duplicateReply,
+        ],
+      }),
+    });
+
+    const result = await scan(
+      TEST_SESSION,
+      PEER_TARGET,
+      { mode: "all", keepPinned: false },
+      cleanerDeps(api),
+    );
+
+    expect(result.candidates.map((item) => item.ts)).toEqual(["2.1"]);
+    expect(result.exclusions.foreignAuthor).toBe(1);
+    expect(result.pages).toBe(2);
+  });
+
+  it("fails closed when duplicate rows disagree on authorship evidence", async () => {
+    const api = fakeApi({
+      conversationsHistory: async () => ({
+        messages: [
+          { ts: "1.1", user: "UPEER01", reply_count: 1 },
+          { ts: "2.1", user: "UTEST01", subtype: "thread_broadcast", thread_ts: "1.1" },
+        ],
+      }),
+      conversationsReplies: async () => ({
+        messages: [
+          { ts: "1.1", user: "UPEER01", reply_count: 1 },
+          { ts: "2.1", user: "UOTHER1", subtype: "thread_broadcast", thread_ts: "1.1" },
+        ],
+      }),
+    });
+
+    await expect(scan(
+      TEST_SESSION,
+      PEER_TARGET,
+      { mode: "all", keepPinned: false },
+      cleanerDeps(api),
+    )).rejects.toThrow("conflicting authorship evidence");
+  });
+
+  it("fails closed on a repeated history cursor", async () => {
+    const api = fakeApi({
+      conversationsHistory: async () => ({ messages: [], nextCursor: "repeat" }),
+    });
+
+    await expect(scan(
+      TEST_SESSION,
+      PEER_TARGET,
+      { mode: "all", keepPinned: false },
+      cleanerDeps(api),
+    )).rejects.toThrow("repeated conversations.history cursor");
+  });
+
+  it("fails closed on a repeated thread cursor", async () => {
+    const api = fakeApi({
+      conversationsHistory: async () => ({
+        messages: [{ ts: "1.1", user: "UPEER01", reply_count: 1 }],
+      }),
+      conversationsReplies: async () => ({
+        messages: [{ ts: "1.1", user: "UPEER01", reply_count: 1 }],
+        nextCursor: "repeat",
+      }),
+    });
+
+    await expect(scan(
+      TEST_SESSION,
+      PEER_TARGET,
+      { mode: "all", keepPinned: false },
+      cleanerDeps(api),
+    )).rejects.toThrow("repeated conversations.replies cursor");
+  });
+
 });
 
-type CleanerEventLike = { type: string };
+describe("runDelete", () => {
+  it("reports deleted and already-gone separately in newest-first order", async () => {
+    const calls: string[] = [];
+    const api = fakeApi({
+      chatDelete: async (_channel, ts) => {
+        calls.push(ts);
+        return ts === "3.1" ? { status: "deleted" } : { status: "alreadyGone" };
+      },
+    });
+    const result = await runDelete(
+      snapshot([candidate("3.1"), candidate("2.1")]),
+      TEST_SESSION,
+      PEER_TARGET,
+      cleanerDeps(api),
+      () => {},
+    );
+    expect(calls).toEqual(["3.1", "2.1"]);
+    expect(result).toMatchObject({
+      terminal: "complete",
+      progress: { deleted: 1, alreadyGone: 1, excluded: 0, remaining: 0 },
+    });
+  });
+
+  it("makes zero delete calls after live URL drift", async () => {
+    const chatDelete = vi.fn(async () => ({ status: "deleted" as const }));
+    const api = fakeApi({ chatDelete });
+    const result = await runDelete(
+      snapshot([candidate("3.1")]),
+      TEST_SESSION,
+      PEER_TARGET,
+      cleanerDeps(api, {
+        readCurrent: () => ({
+          target: { teamId: "TTEST01", channelId: "DOTHER1" },
+          context: TEST_CONTEXT,
+        }),
+      }),
+      () => {},
+    );
+    expect(result.terminal).toBe("failed-partial");
+    expect(chatDelete).not.toHaveBeenCalled();
+  });
+
+  it("rejects a forged foreign-author candidate before mutation", async () => {
+    const chatDelete = vi.fn(async () => ({ status: "deleted" as const }));
+    const forged = { ...candidate("3.1"), authorUserId: "UOTHER1" };
+    const result = await runDelete(
+      snapshot([forged]),
+      TEST_SESSION,
+      PEER_TARGET,
+      cleanerDeps(fakeApi({ chatDelete })),
+      () => {},
+    );
+    expect(result.terminal).toBe("failed-partial");
+    expect(chatDelete).not.toHaveBeenCalled();
+  });
+
+  it("rejects a forged malformed timestamp before mutation", async () => {
+    const chatDelete = vi.fn(async () => ({ status: "deleted" as const }));
+    const result = await runDelete(
+      snapshot([{ ...candidate("3.1"), ts: "1e3" }]),
+      TEST_SESSION,
+      PEER_TARGET,
+      cleanerDeps(fakeApi({ chatDelete })),
+      () => {},
+    );
+    expect(result.terminal).toBe("failed-partial");
+    expect(chatDelete).not.toHaveBeenCalled();
+  });
+
+  it("refreshes session, target, and pins after 100 deletion calls", async () => {
+    const authTest = vi.fn(fakeApi().authTest);
+    const conversationsInfo = vi.fn(fakeApi().conversationsInfo);
+    const pinsList = vi.fn()
+      .mockResolvedValueOnce(new Set<string>())
+      .mockResolvedValue(new Set([candidate("100.1").ts]));
+    const api = fakeApi({ authTest, conversationsInfo, pinsList });
+    const candidates = Array.from({ length: 101 }, (_, index) => candidate(`${200 - index}.1`));
+
+    const result = await runDelete(
+      snapshot(candidates, { keepPinned: true }),
+      TEST_SESSION,
+      PEER_TARGET,
+      cleanerDeps(api),
+      () => {},
+    );
+    expect(result).toMatchObject({ terminal: "complete", progress: { deleted: 100, excluded: 1 } });
+    expect(authTest).toHaveBeenCalledTimes(2);
+    expect(conversationsInfo).toHaveBeenCalledTimes(2);
+    expect(pinsList).toHaveBeenCalledTimes(2);
+  });
+
+  it("halts failed-partial after three identical terminal delete errors", async () => {
+    const chatDelete = vi.fn(async () => {
+      throw new SlackApiError("cannot delete", { code: "cant_delete_message" });
+    });
+    const result = await runDelete(
+      snapshot([candidate("4.1"), candidate("3.1"), candidate("2.1"), candidate("1.1")]),
+      TEST_SESSION,
+      PEER_TARGET,
+      cleanerDeps(fakeApi({ chatDelete })),
+      () => {},
+    );
+    expect(result).toMatchObject({
+      terminal: "failed-partial",
+      progress: { excluded: 3, remaining: 1, lastErrorCode: "cant_delete_message" },
+    });
+    expect(chatDelete).toHaveBeenCalledTimes(3);
+  });
+
+  it("halts immediately on policy uncertainty", async () => {
+    const api = fakeApi({
+      chatDelete: async () => {
+        throw new SlackApiError("policy", { code: "compliance_exports_enabled" });
+      },
+    });
+    const result = await runDelete(
+      snapshot([candidate("2.1"), candidate("1.1")]),
+      TEST_SESSION,
+      PEER_TARGET,
+      cleanerDeps(api),
+      () => {},
+    );
+    expect(result).toMatchObject({
+      terminal: "failed-partial",
+      progress: { deleted: 0, remaining: 2, lastErrorCode: "compliance_exports_enabled" },
+    });
+  });
+
+  it("blocks an expired preview before any mutation", async () => {
+    const chatDelete = vi.fn(async () => ({ status: "deleted" as const }));
+    const result = await runDelete(
+      snapshot([candidate("1.1")], { expiresAtMs: 999 }),
+      TEST_SESSION,
+      PEER_TARGET,
+      cleanerDeps(fakeApi({ chatDelete }), { now: () => 1000 }),
+      () => {},
+    );
+    expect(result).toMatchObject({
+      terminal: "failed-partial",
+      progress: { remaining: 1, lastErrorCode: "verification_failed" },
+    });
+    expect(chatDelete).not.toHaveBeenCalled();
+  });
+
+  it("returns stopped without mutation when already aborted", async () => {
+    const chatDelete = vi.fn(async () => ({ status: "deleted" as const }));
+    const abort = new AbortController();
+    abort.abort();
+    const result = await runDelete(
+      snapshot([candidate("1.1")]),
+      TEST_SESSION,
+      PEER_TARGET,
+      cleanerDeps(fakeApi({ chatDelete })),
+      () => {},
+      abort.signal,
+    );
+    expect(result.terminal).toBe("stopped");
+    expect(chatDelete).not.toHaveBeenCalled();
+  });
+});
