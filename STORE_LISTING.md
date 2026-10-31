@@ -1,6 +1,6 @@
 # Chrome Web Store listing — Slack DM Self Cleaner
 
-Status: **not submitted / not approved**. This file is the reviewed listing source; it is not evidence of Store availability.
+Status: **submitted 2026-10-31; pending Chrome Web Store review (not approved)**. This file is the reviewed listing source; it is not evidence of Store availability.
 
 ## Product name
 
