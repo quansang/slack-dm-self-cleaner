@@ -81,5 +81,5 @@ Use a disposable, non-production Slack workspace and synthetic accounts/messages
 - [x] Product name and non-endorsement copy accepted.
 - [x] Single-purpose, site-access, authentication-data, privacy, and remote-code disclosures entered exactly.
 - [x] Synthetic screenshots (`store-screenshots/`, 1280x800) captured from the reviewed artifact and visually/OCR inspected.
-- [ ] Exact CI-built `dist.zip` uploaded; local rebuilds are forbidden.
-- [ ] Automatic publication after approval selected and submission receipt recorded without personal Slack data.
+- [x] Exact CI-built `dist.zip` uploaded; local rebuilds are forbidden.
+- [x] Automatic publication after approval selected and submission receipt recorded without personal Slack data.
