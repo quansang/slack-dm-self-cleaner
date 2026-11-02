@@ -1,6 +1,6 @@
 # Chrome Web Store listing — Slack DM Self Cleaner
 
-Status: **submitted 2026-10-31; pending Chrome Web Store review (not approved)**. This file is the reviewed listing source; it is not evidence of Store availability.
+Status: **published on the Chrome Web Store (version 0.2.0)**: <https://chromewebstore.google.com/detail/slack-dm-self-cleaner/hpjfgdelompibjfgjfcdcloannhneppl>. This file remains the reviewed listing source.
 
 ## Product name
 

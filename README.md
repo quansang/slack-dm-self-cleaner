@@ -6,6 +6,7 @@ A transparent, unofficial Chrome extension that previews and permanently deletes
 - Channels, group DMs, and Enterprise Grid are rejected.
 - No Slack app, OAuth installation, backend, analytics, remote code, or credential input.
 - Requests go only to Slack from the open Slack tab. The session value stays in memory and is never stored or logged by the extension.
+- Install: [Chrome Web Store](https://chromewebstore.google.com/detail/slack-dm-self-cleaner/hpjfgdelompibjfgjfcdcloannhneppl) or a verified [GitHub Release](https://github.com/quansang/slack-dm-self-cleaner/releases).
 
 This project is not affiliated with, endorsed by, or sponsored by Slack Technologies, LLC.
 
@@ -35,9 +36,9 @@ The self-DM path is accepted only when that verified IM participant equals the a
 
 Never enable a Store copy and an unpacked copy on the same Slack page. Duplicate copies hard-stop; disable one and reload Slack.
 
-## Install from a GitHub Release while Store approval is pending
+## Install from a GitHub Release (alternative to the Store)
 
-The Chrome Web Store listing is not approved yet. The release ZIP is the pre-approval installation path where managed Chrome policy permits Developer mode.
+The [Chrome Web Store listing](https://chromewebstore.google.com/detail/slack-dm-self-cleaner/hpjfgdelompibjfgjfcdcloannhneppl) is the recommended installation path. The release ZIP lets you verify exact bytes yourself and works where managed Chrome policy permits Developer mode.
 
 1. Open the named GitHub Release and download `dist.zip` and `SHA256SUMS`.
 2. Verify the checksum. Stop if it differs:
@@ -61,9 +62,9 @@ Managed Chrome may block Developer mode. Unpacked installations do not auto-upda
 
 Stop active work, wait for its terminal state, remove the extension at `chrome://extensions`, then reload Slack.
 
-## Install from the Chrome Web Store after approval
+## Install from the Chrome Web Store
 
-No Store listing is currently approved; do not trust a similarly named listing. After this repository publishes a verified listing URL:
+Use only this verified listing: <https://chromewebstore.google.com/detail/slack-dm-self-cleaner/hpjfgdelompibjfgjfcdcloannhneppl> (extension ID `hpjfgdelompibjfgjfcdcloannhneppl`). Do not trust a similarly named listing.
 
 1. Stop active work, remove any unpacked copy, and reload Slack before installing the Store copy.
 2. Follow only the verified listing link published in this repository, select **Add to Chrome**, and review site access.

@@ -6,6 +6,7 @@ Tiện ích Chrome mã nguồn mở, không chính thức, dùng để xem trư�
 - Từ chối channel, group DM và Enterprise Grid.
 - Không cần Slack app, OAuth, backend, analytics, mã từ xa hay nhập thông tin đăng nhập.
 - Chỉ gửi request tới Slack từ tab Slack đang mở. Giá trị phiên chỉ tồn tại trong bộ nhớ, không được tiện ích lưu hoặc ghi log.
+- Cài đặt: [Chrome Web Store](https://chromewebstore.google.com/detail/slack-dm-self-cleaner/hpjfgdelompibjfgjfcdcloannhneppl) hoặc [GitHub Release](https://github.com/quansang/slack-dm-self-cleaner/releases) đã xác minh.
 
 Dự án này không liên kết, không được chứng thực và không được tài trợ bởi Slack Technologies, LLC.
 
@@ -35,9 +36,9 @@ Self-DM chỉ hợp lệ khi participant của IM đã xác minh chính là ngư
 
 Không bật đồng thời bản Store và bản unpacked trên cùng trang Slack. Hai bản cùng hoạt động sẽ hard-stop; hãy tắt một bản rồi reload Slack.
 
-## Cài từ GitHub Release khi Store chưa được duyệt
+## Cài từ GitHub Release (cách thay thế Store)
 
-Chrome Web Store chưa duyệt listing. ZIP trong GitHub Release là cách cài tạm trước phê duyệt tại nơi chính sách Chrome cho phép Developer mode.
+[Trang Chrome Web Store](https://chromewebstore.google.com/detail/slack-dm-self-cleaner/hpjfgdelompibjfgjfcdcloannhneppl) là cách cài được khuyến nghị. ZIP trong GitHub Release cho phép bạn tự kiểm tra đúng byte, và dùng được ở nơi chính sách Chrome cho phép Developer mode.
 
 1. Mở GitHub Release tương ứng, tải `dist.zip` và `SHA256SUMS`.
 2. Xác minh checksum; dừng ngay nếu không khớp:
@@ -61,9 +62,9 @@ Chrome do tổ chức quản lý có thể chặn Developer mode. Bản unpacked
 
 Stop tác vụ, chờ trạng thái kết thúc, gỡ tiện ích tại `chrome://extensions`, rồi reload Slack.
 
-## Cài từ Chrome Web Store sau khi được duyệt
+## Cài từ Chrome Web Store
 
-Hiện chưa có Store listing được duyệt; không tin listing có tên tương tự. Sau khi repository này công bố link Store đã xác minh:
+Chỉ dùng listing đã xác minh này: <https://chromewebstore.google.com/detail/slack-dm-self-cleaner/hpjfgdelompibjfgjfcdcloannhneppl> (ID tiện ích `hpjfgdelompibjfgjfcdcloannhneppl`). Không tin listing có tên tương tự.
 
 1. Stop tác vụ, gỡ bản unpacked nếu có và reload Slack trước khi cài bản Store.
 2. Chỉ mở link listing đã xác minh được công bố trong repository này, chọn **Add to Chrome** và xem lại quyền truy cập site.
