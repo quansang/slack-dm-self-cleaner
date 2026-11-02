@@ -10,4 +10,4 @@
 - Removes the conversation picker, channels, group DMs, `saved.list`, broad Slack host access, and `activeTab`.
 - Adds English/Vietnamese usage and installation guides, privacy/security disclosures, exact dependencies, tests, read-only CI, deterministic packaging, checksum, provenance, and protected no-build release publishing.
 
-Known limitations: internal Slack web API/session behavior may change; Enterprise Grid is unsupported; Slack file objects, edit history, hidden/inaccessible history, and retention/compliance copies are not removed. Chrome Web Store submission and approval remain external gates.
+Known limitations: internal Slack web API/session behavior may change; Enterprise Grid is unsupported; Slack file objects, edit history, hidden/inaccessible history, and retention/compliance copies are not removed. The Chrome Web Store listing is published for version 0.2.0.
