@@ -75,7 +75,7 @@ Use a disposable, non-production Slack workspace and synthetic accounts/messages
 
 - [x] Chrome Web Store developer registration and fee completed.
 - [x] 2-Step Verification enabled.
-- [ ] Developer identity verification pending; account is temporarily labeled non-trader. Re-check trader/non-trader status when verification completes.
+- [x] Developer account identity verification completed 2026-11-03.
 - [x] Dedicated public support route (GitHub Issues) and notification settings confirmed.
 - [x] Stable public privacy URL live.
 - [x] Product name and non-endorsement copy accepted.
